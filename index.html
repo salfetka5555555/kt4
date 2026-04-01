@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Геолокация и Хранилища</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h2 { margin-top: 30px; }
+    button { margin: 5px 0; padding: 6px 12px; }
+    table { border-collapse: collapse; margin-top: 10px; width: 100%; max-width: 800px; }
+    th, td { border: 1px solid #000; padding: 6px 10px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>Геолокация и Хранилища</h1>
+
+  <!-- 1. Геолокация -->
+  <h2>Определение местоположения</h2>
+  <button onclick="getLocation()">Определить местоположение</button>
+  <p id="coords">Координаты: пока не определены</p>
+
+  <!-- 2. LocalStorage -->
+  <h2>Сохранение в LocalStorage</h2>
+  <input type="text" id="commentLS" placeholder="Введите комментарий">
+  <button onclick="saveToLocal()">Сохранить в LocalStorage</button>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Комментарий</th>
+        <th>Широта</th>
+        <th>Долгота</th>
+      </tr>
+    </thead>
+    <tbody id="localTable"></tbody>
+  </table>
+
+  <!-- 3. IndexedDB -->
+  <h2>Сохранение в IndexedDB</h2>
+  <input type="text" id="commentDB" placeholder="Введите комментарий">
+  <button onclick="saveToDB()">Сохранить в IndexedDB</button>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Комментарий</th>
+        <th>Широта</th>
+        <th>Долгота</th>
+      </tr>
+    </thead>
+    <tbody id="dbTable"></tbody>
+  </table>
+
+  <script>
+    let currentCoords = { lat: null, lon: null };
+    let db;
+
+    // === 1. Определение местоположения ===
+    function getLocation() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            currentCoords.lat = pos.coords.latitude;
+            currentCoords.lon = pos.coords.longitude;
+            document.getElementById("coords").textContent =
+              `Координаты: ${currentCoords.lat.toFixed(5)}, ${currentCoords.lon.toFixed(5)}`;
+          },
+          (err) => {
+            alert("Ошибка получения геолокации: " + err.message);
+          }
+        );
+      } else {
+        alert("Geolocation API не поддерживается вашим браузером.");
+      }
+    }
+
+    // === 2. LocalStorage ===
+    function saveToLocal() {
+      let comment = document.getElementById("commentLS").value.trim();
+      if (!comment || !currentCoords.lat) {
+        alert("Введите комментарий и определите координаты!");
+        return;
+      }
+
+      let items = JSON.parse(localStorage.getItem("geoComments") || "[]");
+      items.push({
+        comment: comment,
+        lat: currentCoords.lat,
+        lon: currentCoords.lon
+      });
+      localStorage.setItem("geoComments", JSON.stringify(items));
+      updateLocalTable();
+      alert("Запись сохранена в LocalStorage");
+    }
+
+    function updateLocalTable() {
+      const tbody = document.getElementById("localTable");
+      tbody.innerHTML = "";
+      let items = JSON.parse(localStorage.getItem("geoComments") || "[]");
+
+      if (items.length === 0) {
+        let tr = document.createElement("tr");
+        let td = document.createElement("td");
+        td.colSpan = 3;
+        td.textContent = "Нет записей";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      } else {
+        items.forEach(item => {
+          let tr = document.createElement("tr");
+          tr.innerHTML =
+            `<td>${item.comment}</td>
+             <td>${item.lat.toFixed(5)}</td>
+             <td>${item.lon.toFixed(5)}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+    }
+
+    // === 3. IndexedDB ===
+    let request = indexedDB.open("GeoDB", 1);
+
+    request.onupgradeneeded = function(event) {
+      db = event.target.result;
+      if (!db.objectStoreNames.contains("geoStore")) {
+        db.createObjectStore("geoStore", { keyPath: "id", autoIncrement: true });
+      }
+    };
+
+    request.onsuccess = function(event) {
+      db = event.target.result;
+      updateDBTable();
+    };
+
+    request.onerror = function(event) {
+      console.error("Ошибка IndexedDB:", event.target.error);
+    };
+
+    function saveToDB() {
+      let comment = document.getElementById("commentDB").value.trim();
+      if (!comment || !currentCoords.lat) {
+        alert("Введите комментарий и определите координаты!");
+        return;
+      }
+
+      let transaction = db.transaction(["geoStore"], "readwrite");
+      let store = transaction.objectStore("geoStore");
+      let request = store.add({
+        comment: comment,
+        lat: currentCoords.lat,
+        lon: currentCoords.lon
+      });
+
+      request.onsuccess = function() {
+        alert("Запись сохранена в IndexedDB");
+        updateDBTable();
+      };
+      request.onerror = function() {
+        alert("Ошибка при сохранении в IndexedDB");
+      };
+    }
+
+    function updateDBTable() {
+      const tbody = document.getElementById("dbTable");
+      tbody.innerHTML = "";
+
+      let transaction = db.transaction(["geoStore"], "readonly");
+      let store = transaction.objectStore("geoStore");
+      let request = store.getAll();
+
+      request.onsuccess = function(event) {
+        let items = event.target.result;
+        if (items.length === 0) {
+          let tr = document.createElement("tr");
+          let td = document.createElement("td");
+          td.colSpan = 3;
+          td.textContent = "Нет записей";
+          tr.appendChild(td);
+          tbody.appendChild(tr);
+        } else {
+          items.forEach(item => {
+            let tr = document.createElement("tr");
+            tr.innerHTML =
+              `<td>${item.comment}</td>
+               <td>${item.lat.toFixed(5)}</td>
+               <td>${item.lon.toFixed(5)}</td>`;
+            tbody.appendChild(tr);
+          });
+        }
+      };
+    }
+
+    // Обновляем таблицу LocalStorage при загрузке
+    window.onload = updateLocalTable;
+  </script>
+</body>
+</html>
